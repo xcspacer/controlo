@@ -22,5 +22,5 @@ This command allows you to interact with the container for any specific tasks yo
 ## Step 4 - Configuration and Dependencies
 Ensure that your application is properly configured and has all the required dependencies. Execute the following commands one by one:
 ```bash
-chmod -R 775 storage && chmod -R 775 bootstrap && rm -rf public/storage && php artisan key:generate && php artisan storage:link && php artisan migrate --seed && npm run install
+chmod -R 775 storage && chmod -R 775 bootstrap && rm -rf public/storage && php artisan key:generate && php artisan storage:link && php artisan migrate --seed
 ```
