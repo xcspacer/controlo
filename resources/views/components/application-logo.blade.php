@@ -1,0 +1,1 @@
+<img src="https://gestroilenergy.com/wp-content/uploads/2024/02/Gestroil-Energy_registada_novo_amarelo.png" width="200px">
