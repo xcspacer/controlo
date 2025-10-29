@@ -75,17 +75,9 @@ class FuelRequestController extends Controller
                 ];
 
                 if ($latestSurvey) {
-                    $lastFilledDay = $this->getLastFilledDay($latestSurvey);
-
                     foreach ($station->fuels as $fuel) {
-                        $currentSounding = 0;
-
-                        if ($lastFilledDay && isset($latestSurvey->readings[$fuel->id]['sounding']['values'][$lastFilledDay])) {
-                            $currentSounding = intval($latestSurvey->readings[$fuel->id]['sounding']['values'][$lastFilledDay]);
-                        }
-
+                        $currentSounding = $this->getCurrentSounding($latestSurvey, $fuel);
                         $availableSpace = max(0, $fuel->capacity - $currentSounding);
-
                         $averageConsumption = $this->calculateAverageConsumption($station, $fuel);
 
                         if ($availableSpace > 0 || $averageConsumption > 0) {
@@ -141,11 +133,15 @@ class FuelRequestController extends Controller
             ])->withInput();
         }
         
+        // Carregar stations com as mesmas relações usadas no create()
         $stations = Station::with(['fuels', 'surveys' => function ($query) {
             $query->orderBy('year', 'desc')->orderBy('month', 'desc');
         }])->whereIn('id', $stationIds)->get()->keyBy('id');
 
-        $daysUntilDelivery = \Carbon\Carbon::parse($request->delivery_date)->diffInDays(now());
+        // Calcular dias até entrega de forma consistente com o frontend
+        $deliveryDate = \Carbon\Carbon::parse($request->delivery_date)->startOfDay();
+        $today = now()->startOfDay();
+        $daysUntilDelivery = max(0, (int) ceil($deliveryDate->diffInDays($today, false)));
 
         // Acumular quantidades solicitadas por posto/combustível para validar corretamente
         // quando há múltiplos pedidos para o mesmo posto/combustível
@@ -171,28 +167,8 @@ class FuelRequestController extends Controller
                 continue;
             }
 
-            // Buscar último levantamento
-            $latestSurvey = $station->surveys->first();
-            $currentSounding = 0;
-
-            if ($latestSurvey) {
-                $lastFilledDay = $this->getLastFilledDay($latestSurvey);
-                if ($lastFilledDay && isset($latestSurvey->readings[$fuel->id]['sounding']['values'][$lastFilledDay])) {
-                    $currentSounding = intval($latestSurvey->readings[$fuel->id]['sounding']['values'][$lastFilledDay]);
-                }
-            }
-
-            $availableSpace = max(0, $fuel->capacity - $currentSounding);
-
-            // Calcular consumo médio
-            $averageConsumption = $this->calculateAverageConsumption($station, $fuel);
-
-            // Calcular espaço projetado
-            $projectedSpace = $availableSpace;
-            if ($daysUntilDelivery > 0 && $averageConsumption > 0) {
-                $projectedSpace += ($averageConsumption * $daysUntilDelivery);
-            }
-            $projectedSpace = min($projectedSpace, $fuel->capacity);
+            // Usar o mesmo método de cálculo usado no create()
+            $projectedSpace = $this->calculateProjectedSpace($station, $fuel, $daysUntilDelivery);
 
             // Calcular quantidade total já solicitada para este posto/combustível (pode haver múltiplos pedidos)
             $key = $requestItem['station_id'] . '_' . $requestItem['fuel_id'];
@@ -344,6 +320,44 @@ class FuelRequestController extends Controller
         $average = $daysCount > 0 ? intval($totalConsumption / $daysCount) : 0;
 
         return $average;
+    }
+
+    private function getCurrentSounding($latestSurvey, $fuel): int
+    {
+        $lastFilledDay = $this->getLastFilledDay($latestSurvey);
+        $currentSounding = 0;
+
+        if ($lastFilledDay && isset($latestSurvey->readings[$fuel->id]['sounding']['values'][$lastFilledDay])) {
+            $currentSounding = intval($latestSurvey->readings[$fuel->id]['sounding']['values'][$lastFilledDay]);
+        }
+
+        return $currentSounding;
+    }
+
+    private function calculateProjectedSpace($station, $fuel, int $daysUntilDelivery): int
+    {
+        // Buscar último levantamento
+        $latestSurvey = $station->surveys->first();
+        $currentSounding = 0;
+
+        if ($latestSurvey) {
+            $currentSounding = $this->getCurrentSounding($latestSurvey, $fuel);
+        }
+
+        $availableSpace = max(0, $fuel->capacity - $currentSounding);
+
+        // Calcular consumo médio
+        $averageConsumption = $this->calculateAverageConsumption($station, $fuel);
+
+        // Calcular espaço projetado (mesma lógica do frontend)
+        $projectedSpace = $availableSpace;
+        if ($daysUntilDelivery > 0 && $averageConsumption > 0) {
+            $projectedSpace += ($averageConsumption * $daysUntilDelivery);
+        }
+        // Limitar pela capacidade total do tanque
+        $projectedSpace = min($projectedSpace, $fuel->capacity);
+
+        return $projectedSpace;
     }
 
     private function getLastFilledDay($survey): ?int
