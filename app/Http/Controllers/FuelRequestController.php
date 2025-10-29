@@ -143,19 +143,30 @@ class FuelRequestController extends Controller
             ->get()
             ->keyBy('id');
 
-        // Calcular dias até entrega de forma consistente com o frontend
-        // Frontend JavaScript:
-        // const today = new Date(); today.setHours(0, 0, 0, 0);
-        // const delivery = new Date(this.deliveryDate); delivery.setHours(0, 0, 0, 0);
-        // const diffTime = delivery - today;
-        // const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        // return Math.max(0, diffDays);
-        $deliveryDate = \Carbon\Carbon::parse($request->delivery_date)->setTime(0, 0, 0);
-        $today = \Carbon\Carbon::now()->setTime(0, 0, 0);
-        // diffInDays com segundo parâmetro false retorna diferença com sinal (positivo se deliveryDate > today)
-        $diffDays = $deliveryDate->diffInDays($today, false);
-        // Arredondar para cima e garantir não negativo (Math.ceil equivalente)
-        $daysUntilDelivery = max(0, (int) ceil($diffDays));
+        // Calcular dias até entrega EXATAMENTE como o frontend JavaScript:
+        // Frontend: const today = new Date(); today.setHours(0, 0, 0, 0);
+        // Frontend: const delivery = new Date(this.deliveryDate); delivery.setHours(0, 0, 0, 0);
+        // Frontend: const diffTime = delivery - today; (em milissegundos)
+        // Frontend: const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        // Frontend: return Math.max(0, diffDays);
+        
+        // Parse da data de entrega (formato YYYY-MM-DD do input date)
+        $deliveryDateStr = $request->delivery_date;
+        $deliveryDate = \Carbon\Carbon::parse($deliveryDateStr)->setTime(0, 0, 0);
+        
+        // Hoje às 00:00:00 (timezone deve ser o mesmo que o JavaScript usa)
+        $today = \Carbon\Carbon::today()->setTime(0, 0, 0);
+        
+        // JavaScript calcula: diffTime = delivery - today (em milissegundos)
+        // PHP: calcular diferença em milissegundos
+        $diffInMilliseconds = ($deliveryDate->timestamp - $today->timestamp) * 1000;
+        $diffInDays = $diffInMilliseconds / (1000 * 60 * 60 * 24); // Dividir por milissegundos em um dia
+        
+        // Math.ceil e Math.max(0, ...) - exatamente como o frontend
+        $daysUntilDelivery = max(0, (int) ceil($diffInDays));
+        
+        // Debug temporário para verificar
+        \Log::info("Cálculo de dias - Data recebida: {$deliveryDateStr}, Delivery: {$deliveryDate->toDateString()}, Today: {$today->toDateString()}, Dias: {$daysUntilDelivery}");
 
         // Acumular quantidades solicitadas por posto/combustível para validar corretamente
         // quando há múltiplos pedidos para o mesmo posto/combustível
