@@ -133,15 +133,29 @@ class FuelRequestController extends Controller
             ])->withInput();
         }
         
-        // Carregar stations com as mesmas relações usadas no create()
+        // Carregar stations com as mesmas relações e condições usadas no create()
+        // IMPORTANTE: Deve ser idêntico ao create() para garantir cálculos consistentes
         $stations = Station::with(['fuels', 'surveys' => function ($query) {
             $query->orderBy('year', 'desc')->orderBy('month', 'desc');
-        }])->whereIn('id', $stationIds)->get()->keyBy('id');
+        }])
+            ->where('is_active', true) // Mesma condição do create()
+            ->whereIn('id', $stationIds)
+            ->get()
+            ->keyBy('id');
 
         // Calcular dias até entrega de forma consistente com o frontend
-        $deliveryDate = \Carbon\Carbon::parse($request->delivery_date)->startOfDay();
-        $today = now()->startOfDay();
-        $daysUntilDelivery = max(0, (int) ceil($deliveryDate->diffInDays($today, false)));
+        // Frontend JavaScript:
+        // const today = new Date(); today.setHours(0, 0, 0, 0);
+        // const delivery = new Date(this.deliveryDate); delivery.setHours(0, 0, 0, 0);
+        // const diffTime = delivery - today;
+        // const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        // return Math.max(0, diffDays);
+        $deliveryDate = \Carbon\Carbon::parse($request->delivery_date)->setTime(0, 0, 0);
+        $today = \Carbon\Carbon::now()->setTime(0, 0, 0);
+        // diffInDays com segundo parâmetro false retorna diferença com sinal (positivo se deliveryDate > today)
+        $diffDays = $deliveryDate->diffInDays($today, false);
+        // Arredondar para cima e garantir não negativo (Math.ceil equivalente)
+        $daysUntilDelivery = max(0, (int) ceil($diffDays));
 
         // Acumular quantidades solicitadas por posto/combustível para validar corretamente
         // quando há múltiplos pedidos para o mesmo posto/combustível
@@ -176,8 +190,17 @@ class FuelRequestController extends Controller
 
             // Verificar se a quantidade TOTAL solicitada excede o espaço projetado
             if ($totalRequestedQuantity > $projectedSpace) {
+                // Adicionar informações de debug para ajudar a identificar o problema
+                $latestSurvey = $station->surveys->first();
+                $currentSounding = $latestSurvey ? $this->getCurrentSounding($latestSurvey, $fuel) : 0;
+                $availableSpace = max(0, $fuel->capacity - $currentSounding);
+                $averageConsumption = $this->calculateAverageConsumption($station, $fuel);
+                
+                $errorMessage = "A quantidade total solicitada ({$totalRequestedQuantity} LT) para {$station->name} - {$fuel->name} excede a capacidade disponível de {$projectedSpace} LT. ";
+                $errorMessage .= "Detalhes: Capacidade={$fuel->capacity}LT, Stock Atual={$currentSounding}LT, Espaço Disponível={$availableSpace}LT, Consumo Médio={$averageConsumption}LT/dia, Dias até Entrega={$daysUntilDelivery}";
+                
                 return back()->withErrors([
-                    "requests.{$index}.quantity" => "A quantidade total solicitada ({$totalRequestedQuantity} LT) para {$station->name} - {$fuel->name} excede a capacidade disponível de {$projectedSpace} LT."
+                    "requests.{$index}.quantity" => $errorMessage
                 ])->withInput();
             }
         }
@@ -336,7 +359,14 @@ class FuelRequestController extends Controller
 
     private function calculateProjectedSpace($station, $fuel, int $daysUntilDelivery): int
     {
-        // Buscar último levantamento
+        // Garantir que os surveys estejam carregados e ordenados (mesma lógica do create)
+        if (!$station->relationLoaded('surveys')) {
+            $station->load(['surveys' => function ($query) {
+                $query->orderBy('year', 'desc')->orderBy('month', 'desc');
+            }]);
+        }
+        
+        // Buscar último levantamento (mesma lógica do create)
         $latestSurvey = $station->surveys->first();
         $currentSounding = 0;
 
@@ -346,7 +376,7 @@ class FuelRequestController extends Controller
 
         $availableSpace = max(0, $fuel->capacity - $currentSounding);
 
-        // Calcular consumo médio
+        // Calcular consumo médio (mesma função usada no create)
         $averageConsumption = $this->calculateAverageConsumption($station, $fuel);
 
         // Calcular espaço projetado (mesma lógica do frontend)
@@ -354,10 +384,10 @@ class FuelRequestController extends Controller
         if ($daysUntilDelivery > 0 && $averageConsumption > 0) {
             $projectedSpace += ($averageConsumption * $daysUntilDelivery);
         }
-        // Limitar pela capacidade total do tanque
+        // Limitar pela capacidade total do tanque (mesma do frontend)
         $projectedSpace = min($projectedSpace, $fuel->capacity);
 
-        return $projectedSpace;
+        return (int) $projectedSpace;
     }
 
     private function getLastFilledDay($survey): ?int
