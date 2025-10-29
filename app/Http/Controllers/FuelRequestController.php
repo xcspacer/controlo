@@ -133,9 +133,17 @@ class FuelRequestController extends Controller
         ]);
 
         // Validação adicional para limites individuais por posto/combustível
+        $stationIds = collect($request->requests)->pluck('station_id')->filter()->unique();
+        
+        if ($stationIds->isEmpty()) {
+            return back()->withErrors([
+                'requests' => 'Nenhum pedido válido foi encontrado.'
+            ])->withInput();
+        }
+        
         $stations = Station::with(['fuels', 'surveys' => function ($query) {
             $query->orderBy('year', 'desc')->orderBy('month', 'desc');
-        }])->whereIn('id', collect($request->requests)->pluck('station_id'))->get()->keyBy('id');
+        }])->whereIn('id', $stationIds)->get()->keyBy('id');
 
         $daysUntilDelivery = \Carbon\Carbon::parse($request->delivery_date)->diffInDays(now());
 

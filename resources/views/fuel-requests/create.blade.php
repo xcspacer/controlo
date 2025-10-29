@@ -10,6 +10,30 @@
             <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg">
                 <div class="p-6 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
 
+                    @if ($errors->any())
+                        <div class="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                            <div class="flex">
+                                <div class="flex-shrink-0">
+                                    <svg class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                                    </svg>
+                                </div>
+                                <div class="ml-3">
+                                    <h3 class="text-sm font-medium text-red-800 dark:text-red-200">
+                                        Erros de validação:
+                                    </h3>
+                                    <div class="mt-2 text-sm text-red-700 dark:text-red-300">
+                                        <ul class="list-disc pl-5 space-y-1">
+                                            @foreach ($errors->all() as $error)
+                                                <li>{{ $error }}</li>
+                                            @endforeach
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    @endif
+
                     <div class="mb-6 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
@@ -18,7 +42,9 @@
                                 </label>
                                 <input type="date" x-model="deliveryDate" @change="updateProjections()"
                                     :min="minDate"
+                                    name="delivery_date_view"
                                     class="block w-full rounded-md border-gray-300 dark:bg-gray-600 dark:border-gray-600 dark:text-gray-300">
+                                <x-input-error :messages="$errors->get('delivery_date')" class="mt-2" />
                             </div>
                             <div x-show="deliveryDate" class="flex items-center">
                                 <div class="text-sm text-gray-600 dark:text-gray-400">
@@ -349,36 +375,81 @@
                 },
 
                 prepareSubmit(event) {
+                    // Validações iniciais
                     if (this.requests.length === 0) {
                         event.preventDefault();
                         alert('Adicione pelo menos um pedido');
-                        return;
+                        return false;
                     }
                     
                     if (this.totalQuantity > 32000) {
                         event.preventDefault();
                         alert('O total do pedido excede o limite de 32.000 litros');
-                        return;
+                        return false;
                     }
                     
                     if (!this.deliveryDate) {
                         event.preventDefault();
                         alert('Selecione a data de entrega');
-                        return;
+                        return false;
                     }
                     
+                    // Preparar os dados antes do submit
+                    const form = event.target;
+                    
+                    // Atualizar os valores dos inputs hidden
+                    const totalQuantityInput = form.querySelector('input[name="total_quantity"]');
+                    const deliveryDateInput = form.querySelector('input[name="delivery_date"]');
+                    
+                    if (totalQuantityInput) {
+                        totalQuantityInput.value = this.totalQuantity;
+                    } else {
+                        console.error('Input total_quantity não encontrado');
+                        event.preventDefault();
+                        return false;
+                    }
+                    
+                    if (deliveryDateInput) {
+                        deliveryDateInput.value = this.deliveryDate;
+                    } else {
+                        console.error('Input delivery_date não encontrado');
+                        event.preventDefault();
+                        return false;
+                    }
+                    
+                    // Limpar e recriar os inputs hidden dos requests
                     const hiddenContainer = document.getElementById('hidden-requests');
+                    if (!hiddenContainer) {
+                        console.error('Container de requests não encontrado');
+                        event.preventDefault();
+                        return false;
+                    }
+                    
                     hiddenContainer.innerHTML = '';
                     
+                    // Criar os inputs hidden para cada request
                     this.requests.forEach((request, index) => {
-                        ['station_id', 'fuel_id', 'quantity'].forEach(field => {
-                            const input = document.createElement('input');
-                            input.type = 'hidden';
-                            input.name = `requests[${index}][${field}]`;
-                            input.value = request[field];
-                            hiddenContainer.appendChild(input);
-                        });
+                        const stationInput = document.createElement('input');
+                        stationInput.type = 'hidden';
+                        stationInput.name = `requests[${index}][station_id]`;
+                        stationInput.value = String(request.station_id || '');
+                        hiddenContainer.appendChild(stationInput);
+                        
+                        const fuelInput = document.createElement('input');
+                        fuelInput.type = 'hidden';
+                        fuelInput.name = `requests[${index}][fuel_id]`;
+                        fuelInput.value = String(request.fuel_id || '');
+                        hiddenContainer.appendChild(fuelInput);
+                        
+                        const quantityInput = document.createElement('input');
+                        quantityInput.type = 'hidden';
+                        quantityInput.name = `requests[${index}][quantity]`;
+                        quantityInput.value = parseInt(request.quantity) || 0;
+                        hiddenContainer.appendChild(quantityInput);
                     });
+                    
+                    // Se chegou aqui, tudo está OK - permitir que o formulário seja submetido
+                    // Não fazer preventDefault, deixar o submit natural acontecer
                 }
             }
         }
