@@ -164,9 +164,6 @@ class FuelRequestController extends Controller
         
         // Math.ceil e Math.max(0, ...) - exatamente como o frontend
         $daysUntilDelivery = max(0, (int) ceil($diffInDays));
-        
-        // Debug temporário para verificar
-        \Log::info("Cálculo de dias - Data recebida: {$deliveryDateStr}, Delivery: {$deliveryDate->toDateString()}, Today: {$today->toDateString()}, Dias: {$daysUntilDelivery}");
 
         // Acumular quantidades solicitadas por posto/combustível para validar corretamente
         // quando há múltiplos pedidos para o mesmo posto/combustível
@@ -201,17 +198,8 @@ class FuelRequestController extends Controller
 
             // Verificar se a quantidade TOTAL solicitada excede o espaço projetado
             if ($totalRequestedQuantity > $projectedSpace) {
-                // Adicionar informações de debug para ajudar a identificar o problema
-                $latestSurvey = $station->surveys->first();
-                $currentSounding = $latestSurvey ? $this->getCurrentSounding($latestSurvey, $fuel) : 0;
-                $availableSpace = max(0, $fuel->capacity - $currentSounding);
-                $averageConsumption = $this->calculateAverageConsumption($station, $fuel);
-                
-                $errorMessage = "A quantidade total solicitada ({$totalRequestedQuantity} LT) para {$station->name} - {$fuel->name} excede a capacidade disponível de {$projectedSpace} LT. ";
-                $errorMessage .= "Detalhes: Capacidade={$fuel->capacity}LT, Stock Atual={$currentSounding}LT, Espaço Disponível={$availableSpace}LT, Consumo Médio={$averageConsumption}LT/dia, Dias até Entrega={$daysUntilDelivery}";
-                
                 return back()->withErrors([
-                    "requests.{$index}.quantity" => $errorMessage
+                    "requests.{$index}.quantity" => "A quantidade total solicitada ({$totalRequestedQuantity} LT) para {$station->name} - {$fuel->name} excede a capacidade disponível de {$projectedSpace} LT."
                 ])->withInput();
             }
         }
