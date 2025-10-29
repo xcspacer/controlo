@@ -88,13 +88,17 @@
                         </h3>
                         <div class="space-y-2">
                             <template x-for="(request, index) in requests" :key="index">
-                                <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                                <div class="flex items-center justify-between p-3 rounded-lg"
+                                    :class="checkRequestCapacity(request) ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800' : 'bg-gray-50 dark:bg-gray-700'">
                                     <div class="flex-1">
                                         <span class="font-medium" x-text="request.station_name"></span> - 
                                         <span x-text="request.fuel_name"></span>
                                         <span class="text-sm text-gray-600 dark:text-gray-400 ml-2">
                                             (Grupo <span x-text="request.group"></span>)
                                         </span>
+                                        <div x-show="checkRequestCapacity(request)" class="mt-1 text-sm text-red-600 dark:text-red-400">
+                                            ⚠️ Este pedido pode exceder a capacidade disponível após recalcular com a data de entrega atual
+                                        </div>
                                     </div>
                                     <div class="flex items-center space-x-2">
                                         <span class="font-medium" x-text="request.quantity.toLocaleString('pt-PT') + ' LT'"></span>
@@ -263,15 +267,16 @@
                     // Limite global de 32.000 LT
                     const remainingGlobalCapacity = 32000 - this.totalQuantity;
                     
-                    // Calcular o limite individual para este posto/combustível
-                    // Se já existe pedido para este mesmo posto/combustível, reduzir
-                    const existingRequest = this.requests.find(r => 
+                    // Calcular quantidade total já solicitada para este posto/combustível
+                    // (pode haver múltiplos pedidos para o mesmo posto/combustível)
+                    const existingRequests = this.requests.filter(r => 
                         r.station_id == this.selectedStation && r.fuel_id == this.selectedFuel
                     );
                     
-                    const remainingStationCapacity = existingRequest 
-                        ? Math.max(0, projectedSpace - existingRequest.quantity)
-                        : projectedSpace;
+                    const totalExistingQuantity = existingRequests.reduce((sum, r) => sum + r.quantity, 0);
+                    
+                    // Calcular capacidade restante para este posto/combustível
+                    const remainingStationCapacity = Math.max(0, projectedSpace - totalExistingQuantity);
                     
                     // Retornar o menor entre os limites: global e individual do posto
                     return Math.min(remainingStationCapacity, remainingGlobalCapacity);
@@ -372,6 +377,35 @@
 
                 removeRequest(index) {
                     this.requests.splice(index, 1);
+                },
+
+                checkRequestCapacity(request) {
+                    // Verificar se este pedido específico ainda está dentro da capacidade
+                    // considerando todos os outros pedidos para o mesmo posto/combustível
+                    if (!this.deliveryDate) return false;
+                    
+                    // Encontrar o grupo e station correspondente
+                    const group = this.groups.find(g => g.group == request.group);
+                    if (!group) return false;
+                    
+                    const station = group.stations.find(s => s.id == request.station_id);
+                    if (!station) return false;
+                    
+                    const fuel = station.fuels.find(f => f.id == request.fuel_id);
+                    if (!fuel) return false;
+                    
+                    // Calcular espaço projetado
+                    const projectedSpace = this.getProjectedSpace(fuel);
+                    
+                    // Calcular quantidade total solicitada para este posto/combustível
+                    const allRequestsForSame = this.requests.filter(r => 
+                        r.station_id == request.station_id && r.fuel_id == request.fuel_id
+                    );
+                    
+                    const totalQuantity = allRequestsForSame.reduce((sum, r) => sum + r.quantity, 0);
+                    
+                    // Se a quantidade total excede o espaço projetado, retornar true
+                    return totalQuantity > projectedSpace;
                 },
 
                 prepareSubmit(event) {

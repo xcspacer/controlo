@@ -147,6 +147,17 @@ class FuelRequestController extends Controller
 
         $daysUntilDelivery = \Carbon\Carbon::parse($request->delivery_date)->diffInDays(now());
 
+        // Acumular quantidades solicitadas por posto/combustível para validar corretamente
+        // quando há múltiplos pedidos para o mesmo posto/combustível
+        $requestedQuantitiesByStationFuel = [];
+        foreach ($request->requests as $requestItem) {
+            $key = $requestItem['station_id'] . '_' . $requestItem['fuel_id'];
+            if (!isset($requestedQuantitiesByStationFuel[$key])) {
+                $requestedQuantitiesByStationFuel[$key] = 0;
+            }
+            $requestedQuantitiesByStationFuel[$key] += intval($requestItem['quantity']);
+        }
+
         foreach ($request->requests as $index => $requestItem) {
             $station = $stations[$requestItem['station_id']];
             
@@ -183,10 +194,14 @@ class FuelRequestController extends Controller
             }
             $projectedSpace = min($projectedSpace, $fuel->capacity);
 
-            // Verificar se a quantidade solicitada excede o espaço projetado
-            if ($requestItem['quantity'] > $projectedSpace) {
+            // Calcular quantidade total já solicitada para este posto/combustível (pode haver múltiplos pedidos)
+            $key = $requestItem['station_id'] . '_' . $requestItem['fuel_id'];
+            $totalRequestedQuantity = $requestedQuantitiesByStationFuel[$key] ?? 0;
+
+            // Verificar se a quantidade TOTAL solicitada excede o espaço projetado
+            if ($totalRequestedQuantity > $projectedSpace) {
                 return back()->withErrors([
-                    "requests.{$index}.quantity" => "A quantidade solicitada para {$station->name} - {$fuel->name} excede a capacidade disponível de {$projectedSpace} LT."
+                    "requests.{$index}.quantity" => "A quantidade total solicitada ({$totalRequestedQuantity} LT) para {$station->name} - {$fuel->name} excede a capacidade disponível de {$projectedSpace} LT."
                 ])->withInput();
             }
         }
